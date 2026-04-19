@@ -1,0 +1,216 @@
+---
+title: "Enhancing Resource Utilization Through Predictive Modeling for Energy Efficiency Improvement"
+author: "Justice Addae"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+Predictive modeling is considered one of the most effective ways to recognize the right situation for enhancing energy efficiency. It involves the application of advanced statistical and machine learning techniques to analyze past energy consumption data with the aim of creating models that can accurately predict future energy consumption.
+
+Developing predictive models enables management to setup energy management systems for optimizing energy consumption and helping in decision-making.
+
+This project seeks to develop a predictive model to predict the energy consumption of the smart small-scale steel industry in South Korea.
+
+## Data Collection 
+The data set used in this project is made available on the UCI Machine Learning Repository website: <https://archive.ics.uci.edu/dataset/851/steel+industry+energy+consumption>.
+
+The data set is about energy consumption gathered from DAEWOO Steel Co. Ltd. in Gwangyang, South Korea. The data set consists of categorical, continuous, and integer types. The target variable is considered to be "Load Type" (Light Load, Medium Load, Maximum Load) and there are 10 predictor variables. 
+
+## Objective of the Project
+The objective of the project is to
+
+1. Create a predictive model that accurately predicts energy consumption.
+
+2. Identify the important and less important variables in predicting energy consumption.
+
+## Data Analysis and Discussion
+### Data Manipulation
+The goal is to prepare the data for comprehensive analysis, emphasizing the assurance of data quality, consistency, and relevance aligned with the project's objectives. 
+
+As part of this data preparation process, the variable "Day_w," representing days of the week, is transformed into factors with values ranging from 1 to 7. 
+
+Similarly, the target variable "load type" is transformed into a binary outcome with values 0 and 1, consisting of merging the 'Medium_Load' and 'Maximum_Load' categories, setting them to 0, while 'Light_Load' is set to 1 and factored accordingly. This data manipulation ensures that the data set is okay to meet the analytical requirements.
+
+```{r}
+# Loading of libraries 
+library(rpart)
+library(lmtest)
+library(caret)
+library(e1071)
+library(pROC)
+library(ROCR)
+library(vip)
+library(randomForest)
+set.seed(123)
+
+# Data Manipulation
+datap <- read.csv("D:\\USA\\UAF\\Books\\Third Semester\\Categorical Data Analysis\\Project\\Steel_data.csv")
+
+datap$Load_Type <- factor(datap$Load_Type, levels = c('Maximum_Load', 'Medium_Load', 'Light_Load'), labels = c(0,0,1))
+datap$Day_w <- factor(datap$Day_w, levels = c('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'), labels = c(1,2,3,4,5,6,7))
+head(datap)
+```
+
+### Model Fitting and Selection
+Three different generalized linear models (GLMs) were fitted to the data after the manipulations. The first model considered all the predictors; it was observed that the variable "co2.tco2" was not significant with a $p-value = 0.663$ so it was removed in the second model. The third model was fitted, considering interaction effects.
+
+The Akaike Information Criteria (AIC) was employed to determine the best model among them. This AIC measures the relative quality of statistical models and aids in model selection by considering both goodness of fit and model complexity. The model with the lowest AIC value is considered the preferred model for further analysis.
+
+The AICs for the models are 15643.68 for model1, 15641.87 for model2 and 239937.5 for model3.
+
+The model "model2" produced the lowest AIC and was hence selected as the preferred model.
+
+```{r, warning=FALSE}
+# Models
+model1 <- glm(Load_Type ~ ., data = datap, family = binomial())
+summary(model1)$aic
+
+model2 <- glm(Load_Type ~ .-CO2.tCO2., data = datap, family = binomial())
+summary(model2)$aic
+
+model3 <- glm(Load_Type~Usage*Lagging_CRP*Leading_CRP*Lagging_CPF*Leading_CPF*NSM*Day_w, data=datap, family = binomial())
+summary(model3)$aic
+```
+
+### Goodness of Fit Test
+Hypothesis
+
+$H_o:\beta_i=0$\
+the preferred model does not fit well with the data.
+
+$H_1:$ at least one is different\
+the preferred mode fit well with the data.
+
+After selecting the model based on the AICs, a goodness-of-fit test is conducted to assess the significance of the chosen model. This test evaluates how well the chosen model fits with the observed data. Using the likelihood ratio test with significant level ($\alpha=0.05$), the $p-value < 2.2e-16$ which is significant, so we reject the null and conclude that the model fits well with the observed data.
+
+```{r}
+# Hypothesis Test
+model_null <- glm(Load_Type ~ 1 -CO2.tCO2., data = datap, family = binomial())
+lrtest(model_null, model1)
+```
+
+### Predictions with Machine Learning Algorithms
+In order to determine the most effective machine learning approach for accurate result prediction, I conducted three distinct classification experiments. Each experiment involved the application of a different classification algorithm to the data set and the created model, allowing for a comprehensive evaluation of their respective performance. The goal was to assess how well each approach predict the desired outcomes and to identify the model that demonstrate higher predictive capabilities.
+
+The classification algorithms employed were carefully chosen based on their suitability for the task, considering factors such as the nature of the data and the desired type of predictions. 
+
+#### Logistic Regression for Classification
+To predict the outcomes ("light load" and "maximum load") of the GLM created and tested, I employed logistic regression for classification by dividing the data into training set (75% of the data), and validation set (25% of the data). This method is designed for binary classification tasks, making it well-suited for predicting the results of the categories "Light Load" or "Maximum Load" based on a vote.
+
+Using the classification algorithm, I estimated the probabilities of each "load type," and by applying a predefined threshold $prediction > 0.5$, I made the classification decisions following the fitted model.
+
+The model predicted 3864 of "maximum load" with 378 missclassified and 4028 of "light load" with 490 misclassified. The sensitivity (true positive) of the prediction is 0.9109, and the specificity (true negative) is 0.8915. The accuracy of the prediction was 0.9009. This seems to be a good performance of the classification.
+
+The ROC curve performs better since it gets closer to the top-left corner of the plot. This confirms the high sensitivity and low false positive rate across the various threshold values, with $AUC=0.9693668$, which seems to give a
+good classification.
+
+```{r}
+# GLM Prediction
+index <- createDataPartition(datap$Load_Type, p = 0.75, list = FALSE)
+train_data <- datap[index, ]
+validation_data <- datap[-index, ]
+model <- glm(Load_Type ~ . - CO2.tCO2., data = train_data, family = "binomial")
+predictions <- predict(model, newdata = validation_data, type = "response")
+predict_glm <- factor(ifelse(predictions > .5,"1","0"), levels = levels(validation_data$Load_Type))
+confusionMatrix(data=predict_glm, reference = validation_data$Load_Type)
+
+# ROC curve
+ROCpred = prediction(predictions, validation_data$Load_Type, label.ordering=c("0","1"))
+perf=performance(ROCpred, "tpr", "fpr")
+plot(perf,colorize=TRUE, print.cutoffs.at=seq(0,1,by=0.1),text.adj=c(-0.2,1.7), print.auc=TRUE)
+
+auc_value <- performance(ROCpred, "auc")@y.values[[1]]
+auc_value
+```
+
+#### Support Vector Machine Prediction
+Using the SVM algorithm, the model predicted 4072 of "maximum load" with 170 missclassified and 4373 of "light load" with 145 misclassified. The sensitivity (true positive) of the prediction is 0.9599, and the specificity (true negative) is 0.9679. The accuracy of the prediction was 0.964. This seems to be a good performance compared to the classification of the GLM prediction.
+
+```{r}
+# svm Prediction
+svm_model <- svm(Load_Type ~ . - CO2.tCO2., data = train_data, kernel="radial", gamma=0.2, cost=50)
+summary(svm_model)
+
+pred_svm_model <- predict(svm_model, newdata=validation_data)
+conf_matrix <- confusionMatrix(pred_svm_model, reference=validation_data$Load_Type)
+conf_matrix
+```
+
+#### Random Forest Prediction
+Again, using the Random Forest algorithm, the model predicted 4124 of "maximum load" with 118 missclassified and 4416 of "light load" with 102 misclassified. The sensitivity (true positive) of the prediction is 0.9722, and the specificity (true negative) is 0.9774. The accuracy of the prediction was 0.9749. This seems to be a good performance compared to the classification of the GLM prediction and the SVM.
+
+Thus, based on the predictions of the three algorithms, the random forest turned out to perform better than the other two (GLM and SVM).
+
+```{r}
+# Random Forest Prediction
+rf_model <- randomForest(Load_Type ~ . - CO2.tCO2., data = train_data, ntree = 500, importance=TRUE, na.action=na.omit)
+pred_rf <- predict(rf_model, validation_data)
+conf_matrix <- confusionMatrix(pred_rf, validation_data$Load_Type)
+conf_matrix
+```
+
+#### Performance evaluation
+To assess the performance of the models after their predictions, I applied the cross-validation method. It's a technique used in machine learning to assess the performance of a predictive model. It involves partitioning a data set into subsets, training the model on some of these subsets, and evaluating its performance on the remaining subsets.
+
+The result from the cross-validation shows that the performance error of the GLM is 0.09793728, the performance error of the SVM is 0.03630218, and that of the Random Forest error is also 0.02523537. Thus, comparing the performances errors suggests that the random forest performs better than the GLM and the SVM for this dataset.
+
+```{r}
+# Crossvalidation
+K <- 5
+cv <- matrix(0, nrow = 3, ncol = K)
+folds <- sample(1:K, nrow(datap), replace = TRUE)
+
+for (i in 1:K) {
+  train <- datap[folds != i, ]
+  test <- datap[folds == i, ]
+  
+  # Logistic Regression (GLM)
+  glm_model <- glm(Load_Type ~ . - CO2.tCO2., data = train, family = "binomial")
+  predictions_glm <- predict(glm_model, test, type = "response")
+  predict_glm <- factor(as.numeric(predictions_glm > 0.5))
+  cv[1, i] <- mean(predict_glm != as.numeric(test$Load_Type)-1)
+  
+  # Support Vector Machine (SVM)
+  svm_model <- svm(Load_Type ~ . - CO2.tCO2., data = train, kernel = "radial", gamma = 0.2, cost = 50)
+  pred_svm_model <- predict(svm_model, newdata = test)
+  cv[2, i] <- mean(pred_svm_model != test$Load_Type)
+  
+  # Random Forest
+  rf_model <- randomForest(Load_Type ~ . - CO2.tCO2., data = train, ntree = 500, importance = TRUE, na.action = na.omit)
+  pred_rf <- predict(rf_model, test)
+  cv[3, i] <- mean(pred_rf != test$Load_Type)
+}
+
+row.names(cv) <- c("GLM", "SVM", "Random Forest")
+average_accuracy <- apply(cv, 1, mean)
+average_accuracy
+```
+
+### Varible importance  
+Using the command importance(), the variable NSM is suggested to be the most important variable with a "Mean Decrease Accuracy" of 169.35. The less important variable is suggested to be Lagging_CPF with a "Mean Decrease Accuracy" of 22.93.
+
+```{r}
+#mean((pred_rf - validation_data)^2)
+var_importance <- round(importance(rf_model),2)
+var_importance
+
+varImpPlot(rf_model)
+vip(rf_model)
+```
+
+### Conclusion
+The project ensured comprehensive data preparation for analysis by focusing on data quality, consistency, and relevance that aligned with project objectives. Key transformations included converting the "Day_w" variable to factors and the "load type" to a binary variable.
+
+Three generalized linear models (GLMs) were fitted, and the model selection was based on Akaike Information Criteria (AIC). "model2" was identified as the preferred model. A goodness-of-fit test performed confirmed the model's significance.
+
+For predicting "light load" and "maximum load" a classification for logistic regression was applied, which achieved an accuracy of 90.09%. The model's performance was also assessed using sensitivity, specificity, and ROC curve analysis. That showed a robust classification.
+
+Comparing the three algorithms (GLM, SVM, and the Random Forest), it was observed that the Random Forest performed better than the others. The cross-validation performed supported the findings, indicating that the Random Forest model consistently exhibited better performance.
+
+Lastly, variable importance analysis identified "NSM" as the most influential predictor, emphasizing its crucial role in predicting the "load types" variable. This analysis provides valuable insights into the model performance, selection, and key predictors, contributing to a well-informed decision-making process for management.
+
